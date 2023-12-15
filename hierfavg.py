@@ -1,6 +1,9 @@
 # Flow of the algorithm
 # Client update(t_1) -> Edge Aggregate(t_2) -> Cloud Aggregate(t_3)
 import json
+import time
+
+from matplotlib import pyplot as plt
 
 from options import args_parser
 from tensorboardX import SummaryWriter
@@ -338,9 +341,12 @@ def HierFAVG(args):
         global_nn = global_nn.cuda(device)
 
     # 开始训练
-    accs = []  # 记录每轮云聚合的全局精度
-    losses = []  # 记录每轮云聚合的平均边缘服务器损失
-    rates = []
+    accs_edge_avg = []  # 记录云端的平均边缘测试精度
+    losses_edge_avg = []  # 记录云端的平均边缘损失
+    accs_cloud=[0.0] # 记录每轮云端聚合的精度
+    times = [0] # 记录每个云端轮结束的时间戳
+    # 获取初始时间戳（训练开始时）
+    start_time = time.time()
     for num_comm in tqdm(range(args.num_communication)):  # 云聚合
         cloud.refresh_cloudserver()
         [cloud.edge_register(edge=edge) for edge in edges]
@@ -375,14 +381,15 @@ def HierFAVG(args):
             all_loss = sum([e_loss * e_sample for e_loss, e_sample in zip(edge_loss, edge_sample)]) / sum(edge_sample)
             all_loss_sum += all_loss
             avg_acc = correct_all / total_all
+
             print(f"correct_all: {correct_all}, total_all: {total_all}, avg_acc: {avg_acc}")
             all_acc_sum += avg_acc
-            writer.add_scalar(f'Partial_Avg_Train_loss',
-                              all_loss,
-                              num_comm * args.num_edge_aggregation + num_edgeagg + 1)
-            writer.add_scalar(f'All_Avg_Test_Acc_edgeagg',
-                              avg_acc,
-                              num_comm * args.num_edge_aggregation + num_edgeagg + 1)
+            # writer.add_scalar(f'Partial_Avg_Train_loss',
+            #                   all_loss,
+            #                   num_comm * args.num_edge_aggregation + num_edgeagg + 1)
+            # writer.add_scalar(f'All_Avg_Test_Acc_edgeagg',
+            #                   avg_acc,
+            #                   num_comm * args.num_edge_aggregation + num_edgeagg + 1)
 
         # 开始云端聚合
         for edge in edges:
@@ -392,25 +399,36 @@ def HierFAVG(args):
             cloud.send_to_edge(edge)
         # accs[num_comm] = all_acc_sum / args.num_edge_aggregation
         # losses[num_comm] = all_loss_sum / args.num_edge_aggregation
-        accs.append(all_acc_sum / args.num_edge_aggregation)
-        losses.append(all_loss_sum / args.num_edge_aggregation)
+        accs_edge_avg.append(all_acc_sum / args.num_edge_aggregation)
+        losses_edge_avg.append(all_loss_sum / args.num_edge_aggregation)
         global_nn.load_state_dict(state_dict=copy.deepcopy(cloud.shared_state_dict))
         global_nn.train(False)
         correct_all_v, total_all_v = fast_all_clients_test(v_test_loader, global_nn, device)
         avg_acc_v = correct_all_v / total_all_v  # 测试精度
-        writer.add_scalar(f'All_Avg_Test_Acc_cloudagg_Vtest',
-                          avg_acc_v,
-                          num_comm + 1)
+
+        # 在轮次结束时记录相对于开始时间的时间差, 记录云端轮的测试精度
+        times.append(time.time() - start_time)
+        accs_cloud.append(avg_acc_v)
+        # writer.add_scalar(f'All_Avg_Test_Acc_cloudagg_Vtest',
+        #                   avg_acc_v,
+        #                   num_comm + 1)
 
     writer.close()
+    # 画出云端的精度-时间曲线图
+    plt.plot(times, accs_cloud, marker='v', color='r', label="HierFL")
+    plt.legend()
+    plt.xlabel('Time (s)')
+    plt.ylabel('Test Model Accuracy')
+    plt.title('Test Accuracy over Time')
+    plt.show()
     # 最终测试精度
-    print(f"The final virtual acc is {avg_acc_v}")
+    # print(f"The final virtual acc is {avg_acc_v}")
     # 云聚合轮次数，全局精度，平均损失
-    print(f"云聚合轮次数：{args.num_communication}")
-    print(f"每轮云端聚合的全局精度：{accs}")
-    print(f"每轮云端聚合的平均损失：{losses}")
-    # print(accs)
-    # print(losses)
+    # print(f"云聚合轮次数：{args.num_communication}")
+    # print(f"每轮云端聚合的全局精度：{accs_edge_avg}")
+    # print(f"每轮云端聚合的平均损失：{losses_edge_avg}")
+    # print(accs_edge_avg)
+    # print(losses_edge_avg)
 
 
 def main():
