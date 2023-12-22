@@ -239,6 +239,24 @@ def HierFAVG(args):
               f"bs{args.batch_size}lr{args.lr}lr_decay_rate{args.lr_decay}" \
               f"lr_decay_epoch{args.lr_decay_epoch}momentum{args.momentum}"
     writer = SummaryWriter(comment=FILEOUT)
+
+    # 读取mapping配置信息
+    mapping = json.loads(args.edge_client_class_mapping)
+    com_client_mapping = json.loads(args.com_client_mapping)
+    com_edge_mapping = json.loads(args.com_edge_mapping)
+
+    edge_client_mapping = {}
+    client_class_mapping = {}
+    for group_number, clients in mapping.items():
+        # group_number = int(group.split()[1])
+        edge_client_mapping[int(group_number)] = []
+        for client, classes in clients.items():
+            edge_client_mapping[int(group_number)].append(int(client))
+            client_class_mapping[int(client)] = classes
+    args.client_class_mapping = json.dumps(client_class_mapping)
+
+    print(edge_client_mapping)
+    print(client_class_mapping)
     # Build dataloaders
     train_loaders, test_loaders, v_train_loader, v_test_loader = get_dataloaders(args)
     if args.show_dis:
@@ -259,14 +277,7 @@ def HierFAVG(args):
                 print(distribution)
             print("test dataloader {} distribution".format(i))
             print(f"test dataloader size {test_size}")
-
-    # 读取mapping配置信息
-    mapping = None
-    if args.active_mapping == 1:
-        # 提取映射关系参数并将其解析为JSON对象
-        mapping = json.loads(args.mapping)
-    com_client_mapping = json.loads(args.com_client_mapping)
-    com_edge_mapping = json.loads(args.com_edge_mapping)
+    # Assuming the provided image data is stored as a dictionary string
 
     # initialize clients and server
     clients = []
@@ -308,15 +319,8 @@ def HierFAVG(args):
     else:
         # This is randomly assign the clients to edges
         for i in range(args.num_edges):
-            if args.active_mapping == 1:
-                # 根据映射关系进行选择
-                selected_cids = mapping[str(i)]
-            else:
-                # Randomly select clients and assign them
-                if i == args.num_edges - 1:  # 客户端数非边缘数的整数倍情况
-                    selected_cids = cids
-                else:
-                    selected_cids = np.random.choice(cids, clients_per_edge, replace=False)
+            # 根据映射关系进行选择
+            selected_cids = edge_client_mapping[i]
             print(f"Edge {i} has clients {selected_cids}")
             cids = list(set(cids) - set(selected_cids))
             edges.append(Edge(id=i,
@@ -347,12 +351,12 @@ def HierFAVG(args):
     times = [0] # 记录每个云端轮结束的时间戳
     # 获取初始时间戳（训练开始时）
     start_time = time.time()
-    for num_comm in tqdm(range(args.num_communication)):  # 云聚合
+    for num_comm in tqdm(range(args.num_communication)):  # 云迭代
         cloud.refresh_cloudserver()
         [cloud.edge_register(edge=edge) for edge in edges]
         all_loss_sum = 0.0
         all_acc_sum = 0.0
-        for num_edgeagg in range(args.num_edge_aggregation):  # 边缘聚合
+        for num_edgeagg in range(args.num_edge_aggregation):  # 边缘迭代
             edge_loss = [0.0] * args.num_edges
             edge_sample = [0] * args.num_edges
             correct_all = 0.0
@@ -360,16 +364,16 @@ def HierFAVG(args):
             # no edge selection included here
             # for each edge, iterate
             # print(edges)
-            for i, edge in enumerate(edges):  # 边缘迭代
+            for i, edge in enumerate(edges):  # 边缘遍历
                 # edge.refresh_edgeserver()
                 client_loss = 0.0  # 本地loss累计
-                for selected_cid in edge.cids:
+                for selected_cid in edge.cids:  # 本地遍历
                     edge.send_to_client(clients[selected_cid])
-                    clients[selected_cid].sync_with_edgeserver()
+                    clients[selected_cid].sync_with_edgeserver()  # 本地迭代
                     client_loss += clients[selected_cid].local_update(num_iter=args.num_local_update,
                                                                       device=device)
                     clients[selected_cid].send_to_edgeserver(edge) # 上传梯度和速率
-                print(edge.client_rates) # 检查速率是否正确计算与保存
+                # print(edge.client_rates) # 检查速率是否正确计算与保存
                 edge_loss[i] = client_loss
                 edge_sample[i] = sum(edge.sample_registration.values())
 
@@ -382,7 +386,7 @@ def HierFAVG(args):
             all_loss_sum += all_loss
             avg_acc = correct_all / total_all
 
-            print(f"correct_all: {correct_all}, total_all: {total_all}, avg_acc: {avg_acc}")
+            # print(f"第correct_all: {correct_all}, total_all: {total_all}, avg_acc: {avg_acc}")
             all_acc_sum += avg_acc
             # writer.add_scalar(f'Partial_Avg_Train_loss',
             #                   all_loss,

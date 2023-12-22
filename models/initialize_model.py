@@ -96,7 +96,7 @@ class MTL_Model(object):
         self.shared_layers.load_state_dict(new_shared_layers)
 
 def initialize_model(args, device):
-    if args.mtl_model:
+    if args.mtl_model:  # 个性化FL，定制模型
         print('Using different task specific layer for each user')
         if args.dataset == 'cifar10':
             if args.model == 'cnn_complex':

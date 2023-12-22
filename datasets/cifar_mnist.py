@@ -62,50 +62,98 @@ def get_mean_and_std(dataset):
     std.div_(len(dataset))
     return mean, std
 
-
 def iid_esize_split(dataset, args, kwargs, is_shuffle=True):
     """
-    split the dataset to users
-    Return:
-        dict of the data_loaders
-    可自定义每个客户端的训练样本量
+    根据指定的类别自定义每个客户端的数据。
+    Args:
+        dataset: 数据集。
+        args: 包含num_clients, class_mapping等参数的对象。
+        kwargs: DataLoader的额外参数。
+        is_shuffle (bool): 是否打乱数据。
+    Returns:
+        list: 客户端数据加载器列表。
     """
-    # 数据装载初始化
-    data_loaders = [0] * args.num_clients
-    dict_users, all_idxs = {}, [i for i in range(len(dataset))]
-    # if num_samples_per_client == -1, then use all samples
-    if args.self_sample == -1:
+    data_loaders = dict()
+
+    if args.self_class == 0:  # iid随机分配类别
         num_samples_per_client = int(len(dataset) / args.num_clients)
-        # change from dict to list
-        # print('start')
+        all_idxs = [i for i in range(len(dataset))]
         for i in range(args.num_clients):
-            # 打印all_idxs, num_samples_per_client的长度
-            # print(len(all_idxs), num_samples_per_client)
-            dict_users[i] = np.random.choice(all_idxs, num_samples_per_client, replace=False)
-            # dict_users[i] = dict_users[i].astype(int)
-            # dict_users[i] = set(dict_users[i])
-            all_idxs = list(set(all_idxs) - set(dict_users[i]))
-            data_loaders[i] = DataLoader(DatasetSplit(dataset, dict_users[i]),
-                                         batch_size=args.batch_size,
-                                         shuffle=is_shuffle, **kwargs)
-            # print(len(all_idxs), num_samples_per_client)
-    else:  # 自定义每客户样本量开启
-        # 提取映射关系参数并将其解析为JSON对象
-        sample_mapping_json = args.sample_mapping
-        sample_mapping = json.loads(sample_mapping_json)
-        for i in range(args.num_clients):
-            # 客户按id分配样本量
-            sample = sample_mapping[str(i)]
-            if sample == -1: sample = int(len(dataset) / args.num_clients)
-            dict_users[i] = np.random.choice(all_idxs, sample, replace=False)
-            all_idxs = list(set(all_idxs) - set(dict_users[i]))
-            data_loaders[i] = DataLoader(DatasetSplit(dataset, dict_users[i]),
-                                         batch_size=args.batch_size,
-                                         shuffle=is_shuffle, **kwargs)
-            # print(len(all_idxs), num_samples_per_client)
+            dict_users = np.random.choice(all_idxs, num_samples_per_client, replace=False)
+            all_idxs = list(set(all_idxs) - set(dict_users))
+            data_loaders[i] = DataLoader(DatasetSplit(dataset, dict_users), batch_size=args.batch_size, shuffle=is_shuffle, **kwargs)
+
+    else:   # 自定义每客户类别开启
+        class_mapping = json.loads(args.client_class_mapping)
+        all_labels = [label for _, label in dataset]
+        class_indices = {k: [] for k in set(all_labels)}
+        # 为每个类别收集样本的索引
+        for idx, (_, label) in enumerate(dataset):
+            class_indices[label].append(idx)
+        samples_per_client = int(len(dataset) / args.num_clients)
+        for client_id_str, classes in class_mapping.items():
+            client_id = int(client_id_str)  # 将客户端 ID 转换为从 0 开始的索引
+            client_indices = []
+            # 每个客户端分配的样本数应当相等，除以客户端的类别数以平均分配
+            samples_per_class = samples_per_client // len(classes)
+            for class_label in classes:
+                # class_label = class_label_pre-1
+                available_samples = class_indices[class_label]
+                if len(available_samples) >= samples_per_class:
+                    selected_samples = np.random.choice(available_samples, samples_per_class, replace=False)
+                    # 从可用样本中移除已选择的样本
+                    class_indices[class_label] = list(set(class_indices[class_label]) - set(selected_samples))
+                else:  # 如果可用样本不足，允许重复选择
+                    selected_samples = np.random.choice(available_samples, samples_per_class, replace=True)
+                client_indices.extend(selected_samples)
+
+            # 如果由于类别不均造成某客户端样本不足，从已分配的样本中随机选择补充
+            while len(client_indices) < samples_per_client:
+                extra_samples = samples_per_client - len(client_indices)
+                extra_indices = np.random.choice(client_indices, extra_samples, replace=True)
+                client_indices.extend(extra_indices)
+
+            data_loaders[client_id] = DataLoader(DatasetSplit(dataset, client_indices),
+                                                 batch_size=args.batch_size, shuffle=is_shuffle, **kwargs)
+            # print(len(data_loaders[client_id].dataset))
 
     return data_loaders
 
+# def iid_esize_split(dataset, args, kwargs, is_shuffle=True):
+#     """
+#     split the dataset to users
+#     Return:
+#         dict of the data_loaders
+#     可自定义每个客户端的训练样本量
+#     """
+#     # 数据装载初始化
+#     data_loaders = [0] * args.num_clients
+#     dict_users, all_idxs = {}, [i for i in range(len(dataset))]
+#     # if num_samples_per_client == -1, then use all samples
+#     if args.self_class == 0:  # iid随机分配类别
+#         num_samples_per_client = int(len(dataset) / args.num_clients)
+#         # change from dict to list
+#         # print('start')
+#         for i in range(args.num_clients):
+#             dict_users[i] = np.random.choice(all_idxs, num_samples_per_client, replace=False)
+#             all_idxs = list(set(all_idxs) - set(dict_users[i]))
+#             data_loaders[i] = DataLoader(DatasetSplit(dataset, dict_users[i]),
+#                                          batch_size=args.batch_size,
+#                                          shuffle=is_shuffle, **kwargs)
+#     else:  # 自定义每客户类别开启
+#         # 提取映射关系参数并将其解析为JSON对象
+#         class_mapping = json.loads(args.class_mappingn)
+#         for i in range(args.num_clients):  # 读取每个客户的类别信息
+#             # 客户按id分配样本量
+#             class_dict = class_mapping[str(i)]
+#             if sample == -1: sample = int(len(dataset) / args.num_clients)
+#             dict_users[i] = np.random.choice(all_idxs, sample, replace=False)
+#             all_idxs = list(set(all_idxs) - set(dict_users[i]))
+#             data_loaders[i] = DataLoader(DatasetSplit(dataset, dict_users[i]),
+#                                          batch_size=args.batch_size,
+#                                          shuffle=is_shuffle, **kwargs)
+#
+#     return data_loaders
 
 def iid_nesize_split(dataset, args, kwargs, is_shuffle=True):
     sum_samples = len(dataset)
@@ -398,6 +446,7 @@ def get_mnist(dataset_root, args):
                                 shuffle=True, **kwargs)
     v_test_loader = DataLoader(test, batch_size=args.batch_size * args.num_clients,
                                shuffle=False, **kwargs)
+
     return train_loaders, test_loaders, v_train_loader, v_test_loader
 
 
