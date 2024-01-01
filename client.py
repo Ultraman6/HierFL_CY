@@ -95,8 +95,6 @@ class Client():
                 # print("predict: ", predict[0].item())
                 # print("-------------")
                 # sleep(100)
-
-
         return correct, total
 
     def send_to_edgeserver(self, edgeserver):

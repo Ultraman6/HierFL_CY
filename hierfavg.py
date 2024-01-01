@@ -361,6 +361,8 @@ def HierFAVG(args):
         print(f"云端更新   第 {num_comm} 轮")
         for num_edgeagg in range(args.num_edge_aggregation):  # 边缘聚合
             print(f"边缘更新   第 {num_edgeagg} 轮")
+            if torch.cuda.is_available():
+                torch.cuda.set_device("cuda:0")
             # 多线程的边缘迭代
             edge_threads = []
             edge_loss = [0.0] * len(edges)
@@ -369,8 +371,11 @@ def HierFAVG(args):
                 edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
+                print(f"Edge {edge.id} thread started.")  # 确认线程启动的日志
             for edge_thread in edge_threads:
                 edge_thread.join()
+                print(f"Edge thread joined.")  # 确认线程结束的日志
+
             # 统计边缘迭代的损失和样本
             total_samples = sum(edge_sample)
             if total_samples > 0:
@@ -408,21 +413,21 @@ def HierFAVG(args):
     plt.title('Test Accuracy over Time')
     plt.show()
 
-def train_client(client, edge, num_iter, device, return_dict, client_id):
-    # print(f"Client {client.id} 本地迭代开始")
-    # 如果设备是GPU，则设置相应的CUDA设备
-    if torch.cuda.is_available():
-        torch.cuda.set_device("cuda:0")  # 确保在每个线程中设置GPU
-    # 客户端与边缘服务器同步
-    edge.send_to_client(client)
-    client.sync_with_edgeserver()
-    # 执行本地迭代
-    client_loss = client.local_update(num_iter=num_iter, device=device)
-    # 将迭代后的模型发送回边缘服务器
-    client.send_to_edgeserver(edge)
-    # 存储结果
-    return_dict[client_id] = client_loss
-    # print(f"Client {client.id} 本地迭代结束")
+def train_client(client, edge, num_iter, device, return_dict):
+    try:
+        print(f"Client {client.id} training started.")  # 开始日志
+        # 客户端与边缘服务器同步
+        edge.send_to_client(client)
+        client.sync_with_edgeserver()
+        # 执行本地迭代
+        client_loss = client.local_update(num_iter=num_iter, device=device)
+        # 将迭代后的模型发送回边缘服务器
+        client.send_to_edgeserver(edge)
+        # 存储结果
+        return_dict[client.id] = client_loss
+        print(f"Client {client.id} training finished.")  # 结束日志
+    except Exception as e:
+        print(f"Error in client {client.id} training: {e}")  # 异常日志
 
 
 def process_edge(edge, clients, args, device, edge_loss, edge_sample):
@@ -434,20 +439,19 @@ def process_edge(edge, clients, args, device, edge_loss, edge_sample):
     for selected_cid in edge.cids:
         client = clients[selected_cid]
         thread = Thread(target=train_client,
-                        args=(client, edge, args.num_local_update, device, return_dict, selected_cid))
+                        args=(client, edge, args.num_local_update, device, return_dict))
         threads.append(thread)
         thread.start()
+        print(f"Client {selected_cid} thread started.")  # 确认线程启动的日志
     # 等待所有线程完成
     for thread in threads:
         thread.join()
+        print(f"Client thread joined.")  # 确认线程结束的日志
     # 边缘聚合
-    # print(f"Edge {edge.id} 边缘聚合开始")
     edge.aggregate(args)
-    # print(f"Edge {edge.id} 边缘聚合结束")
     # 更新边缘训练损失
     edge_loss[edge.id] = sum(return_dict.values())
     edge_sample[edge.id] = sum(edge.sample_registration.values())
-    # print(f"Edge {edge.id} 边缘更新结束")
 
 
 def main():
