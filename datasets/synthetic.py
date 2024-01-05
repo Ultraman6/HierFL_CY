@@ -62,8 +62,8 @@ def get_dataloader(X, y, args):
     global_train_data = []
     global_test_data = []
     if args.self_class == 1:  # 开启自定义类别映射
-        # 计算每个客户端理想的数据量
-        ideal_samples_per_client = max([len(client_data) for client_data in X])  # 可以选择最大值或其他策略
+        # 计算理想的每个客户端数据量
+        max_samples_per_client = max([len(client_data) for client_data in X])  # 最大值
 
         # 融合所有客户的数据集和标签
         all_data = [item for sublist in X for item in sublist]
@@ -71,28 +71,35 @@ def get_dataloader(X, y, args):
 
         # 读入类别映射配置
         class_mapping = json.loads(args.client_class_mapping)
-        print(set(all_labels))
-        # print(class_mapping)
-        # 为每个客户重新构造数据集和标签
+
+        train_loaders = []
+        test_loaders = []
+        global_train_data = []
+        global_test_data = []
+
         for client_id in range(len(X)):
             client_data = []
             client_labels = []
-            # 根据映射收集客户端的数据
-            for data, label in zip(all_data, all_labels):
-                if label in class_mapping[str(client_id)]:
-                    client_data.append(data)
-                    client_labels.append(label)
 
-            # 数据增强：随机重复数据点以达到理想的数据量
-            while len(client_data) < ideal_samples_per_client:
-                index = random.randint(0, len(client_data) - 1)
-                client_data.append(client_data[index])
-                client_labels.append(client_labels[index])
+            # 收集每个类别的数据，直到达到max_samples_per_client
+            for class_label in class_mapping[str(client_id)]:
+                class_data = [(data, label) for data, label in zip(all_data, all_labels) if label == class_label]
+                # 如果类别数据不足，则进行重复
+                while len(class_data) < max_samples_per_client / len(class_mapping[str(client_id)]):
+                    class_data.extend(class_data)
+                client_data.extend(class_data[:int(max_samples_per_client / len(class_mapping[str(client_id)]))])
+
+            # 分离数据和标签
+            client_data, client_labels = zip(*client_data)
 
             # 随机打乱客户端数据
             combined = list(zip(client_data, client_labels))
             random.shuffle(combined)
-            client_data[:], client_labels[:] = zip(*combined)
+
+            # 将组合后的数据和标签分开，并转换为列表
+            client_data, client_labels = zip(*combined)
+            client_data = list(client_data)
+            client_labels = list(client_labels)
 
             # 划分训练和测试数据集
             train_len = int(0.9 * len(client_data))
@@ -100,7 +107,8 @@ def get_dataloader(X, y, args):
             y_train, y_test = client_labels[:train_len], client_labels[train_len:]
 
             # 创建训练和测试 DataLoader
-            train_ds = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.int64))
+            train_ds = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
+                                     torch.tensor(y_train, dtype=torch.int64))
             test_ds = TensorDataset(torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.int64))
 
             train_loaders.append(DataLoader(dataset=train_ds, batch_size=args.batch_size, shuffle=True))
