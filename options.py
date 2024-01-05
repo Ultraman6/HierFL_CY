@@ -10,15 +10,16 @@ def args_parser():
     # dataset and model
     parser.add_argument(
         '--dataset',
-        type=str,
-        default='mnist',
-        help='name of the dataset: mnist, cifar10, femnist'
+        type = str,
+        default = 'synthetic',
+        help = 'name of the dataset: mnist, cifar10, femnist, synthetic, cinic10'
     )
     parser.add_argument(
         '--model',
-        type=str,
-        default='cnn',
-        help='name of model. mnist: logistic, lenet, cnn; cifar10: resnet18, cnn_complex; femnist: logistic, lenet, cnn'
+        type = str,
+        default = 'lr',
+        help='name of model. mnist: logistic, lenet, cnn; '
+             'cifar10、cinic10: resnet18, resnet18_YWX, cnn_complex; femnist: logistic, lenet, cnn; synthetic:lr'
     )
     parser.add_argument(
         '--input_channels',
@@ -33,17 +34,30 @@ def args_parser():
         help='output channels. femnist:62'
     )
     # nn training hyper parameter
+    #nn training hyper parameter
     parser.add_argument(
         '--batch_size',
-        type=int,
-        default=10,
-        help='batch size when trained on client'
+        type = int,
+        default = 10,
+        help = 'batch size when trained on client'
+    )
+    parser.add_argument(
+        '--num_workers',
+        type = int,
+        default = 4,
+        help = 'numworks for dataloader'
+    )
+    parser.add_argument(
+        '--test_ratio',
+        type = int,
+        default = 0.1,
+        help = 'ratio of test dataset'
     )
     # -------------云聚合轮次、边缘聚合轮次、本地更新轮次
     parser.add_argument(
         '--num_communication',
         type=int,
-        default=5,
+        default=100,
         help='number of communication rounds with the cloud server'
     )
     parser.add_argument(
@@ -55,38 +69,38 @@ def args_parser():
     parser.add_argument(
         '--num_local_update',
         type=int,
-        default=2,
+        default=1,
         help='number of local update (K_1)'
     )
     parser.add_argument(
         '--lr',
-        type=float,
-        default=0.06,
-        help='learning rate of the SGD when trained on client'
+        type = float,
+        default = 0.06,
+        help = 'learning rate of the SGD when trained on client'
     )
     parser.add_argument(
         '--lr_decay',
-        type=float,
-        default='1',
-        help='lr decay rate'
+        type = float,
+        default= '1',
+        help = 'lr decay rate'
     )
     parser.add_argument(
         '--lr_decay_epoch',
-        type=int,
+        type = int,
         default=1,
-        help='lr decay epoch'
+        help= 'lr decay epoch'
     )
     parser.add_argument(
         '--momentum',
-        type=float,
-        default=0,
-        help='SGD momentum'
+        type = float,
+        default = 0,
+        help = 'SGD momentum'
     )
     parser.add_argument(
         '--weight_decay',
-        type=float,
-        default=0,
-        help='The weight decay rate'
+        type = float,
+        default = 0,
+        help= 'The weight decay rate'
     )
     parser.add_argument(
         '--verbose',
@@ -97,9 +111,9 @@ def args_parser():
     # setting for federeated learning
     parser.add_argument(
         '--iid',
-        type=int,
-        default=1,
-        help='distribution of the data, 1,0,-1,-2(one-class)'
+        type = int,
+        default = 1,
+        help = 'distribution of the data, 1,0,-1,-2 分别表示iid同大小、niid同大小、iid不同大小、niid同大小且仅一类(one-class)'
     )
     parser.add_argument(
         '--edgeiid',
@@ -128,10 +142,10 @@ def args_parser():
     )
 
     # editer: Extrodinary 20231215
-    # 定义clients及其分配样本量的关系
+    # 定义clients及其分配样本量的关系（弃用）
     parser.add_argument(
         '--self_sample',
-        default=0,
+        default=-1,
         type=int,
         help='>=0: set sample of each client， -1: all samples'
     )
@@ -149,7 +163,6 @@ def args_parser():
         default=sample_mapping_json,
         help='mapping of clients and their samples'
     )
-
     # 定义client的通信参数
     # 将映射关系转换为JSON格式，主键个数必须等于num_clients，value表示三个参数
     com_client_mapping_json = json.dumps({
@@ -204,8 +217,8 @@ def args_parser():
         help='random seed (defaul: 1)'
     )
 
-    # editer: Sensorjang 20230925
-    dataset_root = os.path.join(os.getcwd(), 'train_data')
+    # 设置数据集的根目录为家目录下的 train_data 文件夹
+    dataset_root = os.path.join(os.path.expanduser('~'), 'train_data')
     if not os.path.exists(dataset_root):
         os.makedirs(dataset_root)
 
@@ -257,6 +270,49 @@ def args_parser():
         default=1,
         help='1 means test on all samples, 0 means test samples will be split averagely to each client'
     )
+
+
+    # synthetic数据集用参数
+    parser.add_argument(
+        '--alpha',
+        type = int,
+        default = 1,
+        help = 'means the mean of distributions among clients'
+    )
+    parser.add_argument(
+        '--beta',
+        type = float,
+        default = 1,
+        help = 'means the variance  of distributions among clients'
+    )
+    parser.add_argument(
+        '--dimension',
+        type = int,
+        default = 60,
+        help = '1 means mapping is active, 0 means mapping is inactive'
+    )
+    parser.add_argument(
+        '--num_class',
+        type = int,
+        default = 10,
+        help = '1 means mapping is active, 0 means mapping is inactive'
+    )
+
+    # 新~数据划分方法
+    parser.add_argument(
+        '--partition',
+        type = str,
+        default = 'noniid-labeldir',
+        help = '划分类型，homo、 noniid-labeldir、 noniid-#label1、 iid-diff-quantity, '
+               '其中label后的数字表示每个客户的类别数'
+    )
+    parser.add_argument(
+        '--beta_new',
+        type = float,
+        default = 1,
+        help = 'dir分布的超参数'
+    )
+
 
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()
