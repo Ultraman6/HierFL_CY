@@ -7,11 +7,13 @@
 # 5. Server receives the aggregated information from the cloud server
 
 import copy
-from average import average_weights
+from average import average_weights, average_weights_simple
+from cloud import valid_loss_test
+
 
 class Edge():
 
-    def __init__(self, id, cids, shared_layers, com_params):
+    def __init__(self, id, cids, shared_layers, com_params, valid_loader=None, valid_nn=None):
         """
         id: edge id
         cids: ids of the clients under this edge
@@ -42,6 +44,8 @@ class Edge():
         self.W=com_params[2]
         # 存放每边缘轮客户上传的速率, 键值对存放
         self.client_rates={id:0 for id in cids}
+        self.valid_loader = valid_loader
+        self.valid_nn = valid_nn
 
     def refresh_edgeserver(self):
         self.receiver_buffer.clear()
@@ -69,6 +73,44 @@ class Edge():
         sample_num = [snum for snum in self.sample_registration.values()]
         self.shared_state_dict = average_weights(w = received_dict,
                                                  s_num= sample_num)
+
+    def quality_aggregate(self, device, delta_threshold, score_init):
+        self.valid_nn.train(False)
+        _, global_loss = valid_loss_test(self.valid_loader, self.valid_nn, device)  # Get global model's loss
+
+        w_locals_pass = []  # Models that pass quality detection
+        alpha_values = []  # Weights for models that pass quality detection
+        deltas = []  # Marginal losses for models
+        min_delta = float('inf')
+
+        all_weights = list(self.receiver_buffer.values())
+
+        for edge_id, w in self.receiver_buffer.items():
+            other_weights = [model_w for model_w in all_weights if model_w is not w]
+            if other_weights:
+                aggregated_weights = average_weights_simple(other_weights)
+                self.valid_nn.load_state_dict(aggregated_weights)
+                _, loss_i = valid_loss_test(self.valid_loader, self.valid_nn, device)
+            else:
+                loss_i = global_loss
+
+            # Calculate the delta loss
+            delta_i = loss_i - global_loss
+            print(delta_i)
+            if delta_i >= delta_threshold:
+                deltas.append(delta_i)
+                w_locals_pass.append(w)
+                min_delta = min(min_delta, delta_i)
+
+        score_sum = sum(delta - min_delta for delta in deltas)
+        for delta in deltas:
+            score = (delta - min_delta) / score_sum
+            alpha = score_init + score
+            alpha_values.append(alpha)
+
+        # 质量得分聚合
+        self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
+
 
     def send_to_client(self, client):
         client.receive_from_edgeserver(copy.deepcopy(self.shared_state_dict))

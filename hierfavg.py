@@ -5,7 +5,9 @@ import time
 from threading import Thread
 
 from matplotlib import pyplot as plt
+from torch import nn
 
+from average import average_weights_simple, average_weights
 from models.synthetic_logistic import LogisticRegression_SYNTHETIC
 from options import args_parser
 from tensorboardX import SummaryWriter
@@ -181,16 +183,22 @@ def all_clients_test(server, clients, cids, device):
 def fast_all_clients_test(v_test_loader, global_nn, device):
     correct_all = 0.0
     total_all = 0.0
+    loss_all = 0.0
+    criterion = nn.CrossEntropyLoss().to(device)
     with torch.no_grad():
         for data in v_test_loader:
             inputs, labels = data
             inputs = inputs.to(device)
             labels = labels.to(device)
             outputs = global_nn(inputs)
+            loss = criterion(outputs, labels)  # pylint: disable=E1102
             _, predicts = torch.max(outputs, 1)
             total_all += labels.size(0)
             correct_all += (predicts == labels).sum().item()
-    return correct_all, total_all
+            loss_all += loss.item() * labels.size(0)
+    return correct_all/total_all, loss_all/total_all
+
+
 
 
 def initialize_global_nn(args):
@@ -284,7 +292,22 @@ def HierFAVG(args):
                 print(distribution)
             print("test dataloader {} distribution".format(i))
             print(f"test dataloader size {test_size}")
+
+        print("Cloud valid data size: {}".format(len(v_test_loader.dataset)))
+        valid_data_distribution = show_distribution(v_test_loader, args)
+        print("Cloud valid data distribution: {}".format(valid_data_distribution))
     # Assuming the provided image data is stored as a dictionary string
+
+    # New an NN model for testing error
+    global_nn = initialize_global_nn(args)
+    if args.cuda:
+        global_nn = global_nn.cuda(device)
+
+    test_loader = None
+    test_nn = None
+    if args.mode == 1:
+        test_loader = v_test_loader
+        test_nn = copy.deepcopy(global_nn)
 
     # initialize clients and server
     clients = []
@@ -339,18 +362,12 @@ def HierFAVG(args):
                             list(edges[i].sample_registration.values())]
 
     # Initialize cloud server
-    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers))
+    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers), valid_loader=test_loader, valid_nn=test_nn)
     # First the clients report to the edge server their training samples
     [cloud.edge_register(edge=edge) for edge in edges]
     p_edge = [sample / sum(cloud.sample_registration.values()) for sample in
               list(cloud.sample_registration.values())]
     cloud.refresh_cloudserver()
-
-    # New an NN model for testing error
-    global_nn = initialize_global_nn(args)
-    if args.cuda:
-        global_nn = global_nn.cuda(device)
-
 
     # 开始训练
     # accs_edge_avg = []  # 记录云端的平均边缘测试精度
@@ -395,8 +412,13 @@ def HierFAVG(args):
         # 开始云端聚合
         for edge in edges:
             edge.send_to_cloudserver(cloud)
+
+        if args.mode == 1:  # 开启基线
+            cloud.quality_aggregate(device, args.threshold, args.score_init)
+        else:
+            cloud.aggregate(args)
         print(f"Cloud 聚合")
-        cloud.aggregate(args)
+
         for edge in edges:
             cloud.send_to_edge(edge)
         global_nn.load_state_dict(state_dict=copy.deepcopy(cloud.shared_state_dict))
@@ -404,8 +426,7 @@ def HierFAVG(args):
 
         # 云端测试
         print(f"Cloud 测试")
-        correct_all_v, total_all_v = fast_all_clients_test(v_test_loader, global_nn, device)
-        avg_acc_v = correct_all_v / total_all_v  # 测试精度
+        avg_acc_v, _ = fast_all_clients_test(v_test_loader, global_nn, device)
         print('Cloud Valid Accuracy {}'.format(avg_acc_v))
         # 在轮次结束时记录相对于开始时间的时间差, 记录云端轮的测试精度
         times.append(time.time() - start_time)
@@ -454,10 +475,15 @@ def process_edge(edge, clients, args, device, edge_loss, edge_sample):
         thread.join()
         print(f"Client thread joined.")  # 确认线程结束的日志
     # 边缘聚合
-    edge.aggregate(args)
+    if args.mode == 1:  # 开启基线
+        edge.quality_aggregate(device, args.threshold, args.score_init)
+    else:
+        edge.aggregate(args)
     # 更新边缘训练损失
     edge_loss[edge.id] = sum(return_dict.values())
     edge_sample[edge.id] = sum(edge.sample_registration.values())
+
+
 
 
 def main():

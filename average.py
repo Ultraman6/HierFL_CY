@@ -15,3 +15,15 @@ def average_weights(w, s_num):
             w_avg[k] = w_avg[k] + torch.mul(w[i][k], s_num[i] / temp_sample_num)
         w_avg[k] = torch.mul(w_avg[k], temp_sample_num/total_sample_num)
     return w_avg
+
+def average_weights_simple(w):
+    # copy the first client's weights
+    total_num = len(w)
+    w_avg = copy.deepcopy(w[0])
+    for k in w_avg.keys():  # the nn layer loop
+        for i in range(1, len(w)):  # the client loop
+            # w_avg[k] += torch.mul(w[i][k], s_num[i]/temp_sample_num)
+            # result type Float can't be cast to the desired output type Long
+            w_avg[k] = w_avg[k] + w[i][k]
+        w_avg[k] = torch.mul(w_avg[k], 1 / total_num)
+    return w_avg
