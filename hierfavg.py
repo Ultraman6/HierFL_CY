@@ -1,11 +1,13 @@
 # Flow of the algorithm
 # Client update(t_1) -> Edge Aggregate(t_2) -> Cloud Aggregate(t_3)
 import json
+import random
 import time
 from threading import Thread
 
 from matplotlib import pyplot as plt
 from torch import nn
+from torch.utils.data import Subset, DataLoader, dataset
 
 from average import average_weights_simple, average_weights
 from models.synthetic_logistic import LogisticRegression_SYNTHETIC
@@ -236,6 +238,24 @@ def initialize_global_nn(args):
         raise ValueError(f"Dataset {args.dataset} Not implemented")
     return global_nn
 
+def get_valid_loader(v_test_loader, subset_ratio = 0.5):
+    # 收集每个类别的样本索引
+    indices_per_class = {}
+    for i, (_, label) in enumerate(v_test_loader.dataset):
+        label = label.item()
+        if label not in indices_per_class:
+            indices_per_class[label] = []
+        indices_per_class[label].append(i)
+    # 计算每个类别的样本数并按比例抽取
+    selected_indices = []
+    for label_indices in indices_per_class.values():
+        num_samples = int(len(label_indices) * subset_ratio)
+        selected_indices.extend(np.random.choice(label_indices, num_samples, replace=False))
+    print(len(selected_indices))
+    # 创建新的子集
+    new_subset = Subset(v_test_loader.dataset, selected_indices)
+    # 创建新的 DataLoader
+    return DataLoader(new_subset, batch_size=v_test_loader.batch_size, shuffle=False)
 
 # 分层联邦总聚合
 def HierFAVG(args):
@@ -274,6 +294,18 @@ def HierFAVG(args):
     print(client_class_mapping)
     # Build dataloaders
     train_loaders, test_loaders, v_test_loader = get_dataloaders(args)
+
+    # New an NN model for testing error
+    global_nn = initialize_global_nn(args)
+    if args.cuda:
+        global_nn = global_nn.cuda(device)
+
+    detect_loader = None
+    test_nn = None
+    if args.mode == 1:
+        detect_loader = get_valid_loader(v_test_loader)
+        test_nn = copy.deepcopy(global_nn)
+
     if args.show_dis:
         # 训练集加载器划分
         for i in range(args.num_clients):
@@ -285,7 +317,7 @@ def HierFAVG(args):
         # 测试集加载器划分
         for i in range(args.num_clients):
             test_loader = test_loaders[i]
-            test_size = len(test_loaders[i].dataset)
+            test_size = len(test_loader.dataset)
             print(len(test_loader.dataset))
             if args.test_on_all_samples != 1:
                 distribution = show_distribution(test_loader, args)
@@ -296,18 +328,12 @@ def HierFAVG(args):
         print("Cloud valid data size: {}".format(len(v_test_loader.dataset)))
         valid_data_distribution = show_distribution(v_test_loader, args)
         print("Cloud valid data distribution: {}".format(valid_data_distribution))
+        if args.mode == 1:
+            print("Cloud quality detect data size: {}".format(len(detect_loader.dataset)))
+            valid_data_distribution = show_distribution(detect_loader, args)
+            print("Cloud quality detect data distribution: {}".format(valid_data_distribution))
     # Assuming the provided image data is stored as a dictionary string
 
-    # New an NN model for testing error
-    global_nn = initialize_global_nn(args)
-    if args.cuda:
-        global_nn = global_nn.cuda(device)
-
-    test_loader = None
-    test_nn = None
-    if args.mode == 1:
-        test_loader = v_test_loader
-        test_nn = copy.deepcopy(global_nn)
 
     # initialize clients and server
     clients = []
@@ -355,14 +381,14 @@ def HierFAVG(args):
             cids = list(set(cids) - set(selected_cids))
             edges.append(Edge(id=i,
                               cids=selected_cids,
-                              shared_layers=copy.deepcopy(clients[0].model.shared_layers),com_params=com_edge_mapping[str(i)]))
+                              shared_layers=copy.deepcopy(clients[0].model.shared_layers),com_params=com_edge_mapping[str(i)],valid_loader=detect_loader, valid_nn=test_nn))
             [edges[i].client_register(clients[cid]) for cid in selected_cids]
             edges[i].all_trainsample_num = sum(edges[i].sample_registration.values())
             p_clients[i] = [sample / float(edges[i].all_trainsample_num) for sample in
                             list(edges[i].sample_registration.values())]
 
     # Initialize cloud server
-    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers), valid_loader=test_loader, valid_nn=test_nn)
+    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers), valid_loader=detect_loader, valid_nn=test_nn)
     # First the clients report to the edge server their training samples
     [cloud.edge_register(edge=edge) for edge in edges]
     p_edge = [sample / sum(cloud.sample_registration.values()) for sample in
@@ -413,10 +439,10 @@ def HierFAVG(args):
         for edge in edges:
             edge.send_to_cloudserver(cloud)
 
-        if args.mode == 1:  # 开启基线
-            cloud.quality_aggregate(device, args.threshold, args.score_init)
-        else:
-            cloud.aggregate(args)
+        # if args.mode == 1:  # 开启基线
+        #     cloud.quality_aggregate(device, args.threshold, args.score_init)
+        # else:
+        cloud.aggregate(args)
         print(f"Cloud 聚合")
 
         for edge in edges:

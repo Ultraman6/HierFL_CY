@@ -83,8 +83,10 @@ class Cloud():
             alpha = score_init + score
             alpha_values.append(alpha)
         
-        # 质量得分聚合
-        self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
+        if len(w_locals_pass) != 0:
+            # 质量得分聚合
+            self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
+
 
 
 
