@@ -242,7 +242,8 @@ def get_valid_loader(v_test_loader, subset_ratio = 0.5):
     # 收集每个类别的样本索引
     indices_per_class = {}
     for i, (_, label) in enumerate(v_test_loader.dataset):
-        label = label.item()
+        if hasattr(label, 'item'):
+            label = label.item()
         if label not in indices_per_class:
             indices_per_class[label] = []
         indices_per_class[label].append(i)

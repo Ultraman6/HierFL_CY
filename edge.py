@@ -75,15 +75,14 @@ class Edge():
                                                  s_num= sample_num)
 
     def quality_aggregate(self, device, delta_threshold, score_init):
-        self.valid_nn.train(False)
-        _, global_loss = valid_loss_test(self.valid_loader, self.valid_nn, device)  # Get global model's loss
-
         w_locals_pass = []  # Models that pass quality detection
         alpha_values = []  # Weights for models that pass quality detection
         deltas = []  # Marginal losses for models
-        min_delta = float('inf')
 
         all_weights = list(self.receiver_buffer.values())
+        self.valid_nn.load_state_dict(average_weights_simple(all_weights))
+        self.valid_nn.train(False)
+        _, global_loss = valid_loss_test(self.valid_loader, self.valid_nn, device)  # Get global model's loss
 
         for edge_id, w in self.receiver_buffer.items():
             other_weights = [model_w for model_w in all_weights if model_w is not w]
@@ -100,13 +99,16 @@ class Edge():
             if delta_i >= delta_threshold:
                 deltas.append(delta_i)
                 w_locals_pass.append(w)
-                min_delta = min(min_delta, delta_i)
 
+        min_delta = min(deltas)
         score_sum = sum(delta - min_delta for delta in deltas)
         for delta in deltas:
             score = (delta - min_delta) / score_sum
             alpha = score_init + score
             alpha_values.append(alpha)
+
+        alpha_sum = sum(alpha_values)
+        alpha_values = [alpha / alpha_sum for alpha in alpha_values]
 
         if len(w_locals_pass) != 0:
             # 质量得分聚合
