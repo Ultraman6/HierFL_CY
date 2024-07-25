@@ -4,10 +4,10 @@
 # 2. Server reveives updates from the user
 # 3. Server send the aggregated information back to clients
 import copy
-
+from scipy.stats import norm
+import numpy as np
 import torch
 from torch import nn
-
 from average import average_weights, average_weights_simple
 
 
@@ -22,6 +22,8 @@ class Cloud():
         self.clock = []
         self.valid_loader = valid_loader
         self.valid_nn = valid_nn
+        self.virtual_queue = []  # 边缘虚拟队列 （更新后选择）
+        self.latency_queue = []  # 边缘延迟队列 （积分更新）
 
     def refresh_cloudserver(self):
         self.receiver_buffer.clear()
@@ -44,6 +46,12 @@ class Cloud():
         self.shared_state_dict = average_weights(w=received_dict,
                                                  s_num=sample_num)
         return None
+
+    # 边缘选择（基于历史时间估计）
+    def filter_edge_models(self):
+
+    # 边缘权重更新
+    def cal_edge_weights(self):
 
     def send_to_edge(self, edge):
         edge.receive_from_cloudserver(copy.deepcopy(self.shared_state_dict))
@@ -82,12 +90,9 @@ class Cloud():
             score = (delta - min_delta) / score_sum
             alpha = score_init + score
             alpha_values.append(alpha)
-        
-        if len(w_locals_pass) != 0:
-            # 质量得分聚合
-            self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
 
-
+        # 质量得分聚合
+        self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
 
 
 def valid_loss_test(v_test_loader, global_nn, device):
@@ -107,3 +112,35 @@ def valid_loss_test(v_test_loader, global_nn, device):
             correct_all += (predicts == labels).sum().item()
             loss_all += loss.item() * labels.size(0)
     return correct_all / total_all, loss_all / total_all
+
+
+def estimate_posterior_parameters(prior_mean, prior_variance, data, sample_size=100):
+    """
+    根据先验参数和观测数据，估计后验分布参数，并生成预测样本。
+
+    参数:
+        prior_mean (float): 先验均值
+        prior_variance (float): 先验方差
+        data (np.array): 观测数据
+        sample_size (int): 生成的样本数量
+
+    返回:
+        tuple: 包含更新后的均值、估计的方差和预测样本数组
+    """
+    # 数据数量
+    n_data = len(data)
+
+    # 使用观测数据来估计方差
+    data_variance = np.var(data, ddof=1)
+
+    # 估计后验方差的点估计
+    posterior_variance_point_estimate = 1 / (1 / prior_variance + n_data / data_variance)
+
+    # 更新均值
+    posterior_mean = (prior_mean / prior_variance + np.sum(data) / data_variance) / (
+            1 / prior_variance + n_data / data_variance)
+
+    # 预估下一轮数据的分布
+    predicted_samples = norm.rvs(loc=posterior_mean, scale=np.sqrt(posterior_variance_point_estimate), size=sample_size)
+
+    return posterior_mean, posterior_variance_point_estimate, predicted_samples
