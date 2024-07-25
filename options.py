@@ -420,6 +420,12 @@ def args_parser():
         default=2,
         help='1 质量聚合, 2 异步聚合, 0 普通聚合'
     )
+    parser.add_argument(
+        '--max_latency',
+        type=float,
+        default=1000,
+        help='当前执行的FL任务的平均最大执行时延'
+    )
 
 
     args = parser.parse_args()

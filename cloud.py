@@ -118,7 +118,7 @@ class Cloud():
         # 质量得分聚合
         self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
 
-    def update_params(self, sample_size=100):
+    def update_params(self, sample_size=100, max_latency=1000):
         """
         根据先验参数和观测数据，估计后验分布参数，并生成预测样本。
 
@@ -154,9 +154,11 @@ class Cloud():
 
             self.latency_queue[str(edge_id)].append(float(np.mean(predicted_samples)))
 
-        this_time = sum([seq[-1] for seq in self.latency_queue.values()])  # acc est time of edge in this round
-        self.id_sel = np.argmax(np.array([self.virtual_queue[id] - self.beta*(1 - self.latency_queue[str(id)][-1] / this_time)
-                                for id in self.id_registration]))  # Π(t) in paper
+        # 排除前一轮选中边缘
+        # this_time = sum([seq[-1] for id, seq in self.latency_queue.items() if id != self.id_sel])  # acc est time of edge in this round
+        candidate = {id: self.virtual_queue[id] - self.beta*(1 - self.latency_queue[str(id)][-1] / max_latency)
+                                for id in self.id_registration if id != self.id_sel}  # Π(t) in paper
+        self.id_sel = max(candidate, key=candidate.get)
         print("Selected edge: ", self.id_sel)
         for edge_id in self.id_registration: # 更新边缘虚拟队列
             if edge_id != self.id_sel:
@@ -164,7 +166,7 @@ class Cloud():
                 self.staleness[edge_id] += 1
             else:
                 xm = 1
-            self.virtual_queue[edge_id] = max(self.virtual_queue[edge_id] +self.min_fraction[str(edge_id)] - xm, 0)
+            self.virtual_queue[edge_id] = max(self.virtual_queue[edge_id] + self.min_fraction[str(edge_id)] - xm, 0)
 
 
 

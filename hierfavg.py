@@ -440,7 +440,7 @@ def HierFAVG(args):
         # print(models_are_equal(edges[0].shared_state_dict, edges[1].shared_state_dict))
 
         # update params of edges in cloud
-        cloud.update_params(args.sample_size)
+        cloud.update_params(args.sample_size, args.max_latency)
         # 开始云端聚合
         for edge in edges:
             edge.send_to_cloudserver(cloud)
@@ -453,9 +453,11 @@ def HierFAVG(args):
             cloud.aggregate(args)
 
         print(f"Cloud 聚合")
-
-        for edge in edges:
-            cloud.send_to_edge(edge)
+        if args.mode == 2:  # 只给选中边缘发送更新模型
+            cloud.send_to_edge(edges[cloud.id_sel])
+        else:
+            for edge in edges:
+                cloud.send_to_edge(edge)
         global_nn.load_state_dict(state_dict=copy.deepcopy(cloud.shared_state_dict))
         global_nn.train(False)
 
