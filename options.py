@@ -223,6 +223,7 @@ def args_parser():
         4: {48: [0], 40: [1], 20: [2], 5: [3], 7: [4], 9: [5], 44: [6], 36: [7], 47: [8], 17: [9]}
     })
 
+
     # AvgJSD = 0.4744959201471498
     # mapping_json = json.dumps({
     #     0: {0: [1], 1: [1], 2: [1], 3: [2], 4: [2], 5: [2], 6: [3], 7: [3], 8: [3], 9: [4]},
@@ -293,7 +294,6 @@ def args_parser():
         type=int
     )
 
-    # editer: Sensorjang 20230925
     parser.add_argument(
         '--test_on_all_samples',
         type=int,
@@ -344,12 +344,6 @@ def args_parser():
 
     # 基于边际测试损失的聚合
     parser.add_argument(
-        '--mode',
-        type=float,
-        default=1,
-        help='1 表示开启, 0 表示关闭'
-    )
-    parser.add_argument(
         '--threshold',
         type=float,
         default=-0.01,
@@ -361,6 +355,72 @@ def args_parser():
         default=1,
         help='初始得分'
     )
+
+    # 异步外部参数
+    parser.add_argument(
+        '--sample_size',
+        type=str,
+        default=100,
+        help='贝叶斯估计的采样数量'
+    )
+    edge_min_fraction_json = json.dumps({
+        "0": 0.5,
+        "1": 0.5,
+        "2": 0.5,
+        "3": 0.5,
+        "4": 0.5,
+    })
+    parser.add_argument(
+        '--edge_min_fraction',
+        type=str,
+        default=edge_min_fraction_json,
+        help='mapping of edges and their params in communication'
+    )
+    edge_prior_json = json.dumps({
+        "0": [0, 100],
+        "1": [0, 100],
+        "2": [0, 100],
+        "3": [0, 100],
+        "4": [0, 100],
+    })
+    parser.add_argument(
+        '--edge_prior',
+        type=str,
+        default=edge_prior_json,
+        help='mapping of edges for their prior params in communication'
+    )
+    edge_his_json = json.dumps({
+        "0": [1, 2, 2, 2, 2],
+        "1": [1, 2, 2, 2, 2],
+        "2": [1, 2, 2, 2, 2],
+        "3": [1, 2, 2, 2, 2],
+        "4": [1, 2, 2, 2, 2],
+    })
+    parser.add_argument(
+        '--edge_his',
+        type=str,
+        default=edge_his_json,
+        help='mapping of edges and their history in communication'
+    )
+    parser.add_argument(
+        '--edge_beta',
+        type=float,
+        default=0.5,
+        help='use for edge selection'
+    )
+    parser.add_argument(
+        '--penalty',
+        type=float,
+        default=0.5,
+        help='forget factor for async edge agg'
+    )
+    parser.add_argument(
+        '--mode',
+        type=float,
+        default=2,
+        help='1 质量聚合, 2 异步聚合, 0 普通聚合'
+    )
+
 
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available()

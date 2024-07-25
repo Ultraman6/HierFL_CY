@@ -389,7 +389,11 @@ def HierFAVG(args):
                             list(edges[i].sample_registration.values())]
 
     # Initialize cloud server
-    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers), valid_loader=detect_loader, valid_nn=test_nn)
+    mapping = json.loads(args.edge_min_fraction)
+    prior = json.loads(args.edge_prior)
+    his = json.loads(args.edge_his)
+    cloud = Cloud(shared_layers=copy.deepcopy(clients[0].model.shared_layers), valid_loader=detect_loader,
+                  valid_nn=test_nn, edge_fraction=mapping, edge_prior=prior, edge_his=his, edge_beta=args.edge_beta, penalty=args.penalty)
     # First the clients report to the edge server their training samples
     [cloud.edge_register(edge=edge) for edge in edges]
     p_edge = [sample / sum(cloud.sample_registration.values()) for sample in
@@ -421,10 +425,8 @@ def HierFAVG(args):
                 edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
-                print(f"Edge {edge.id} thread started.")  # 确认线程启动的日志
             for edge_thread in edge_threads:
                 edge_thread.join()
-                print(f"Edge thread joined.")  # 确认线程结束的日志
 
             # 统计边缘迭代的损失和样本
             total_samples = sum(edge_sample)
@@ -436,14 +438,20 @@ def HierFAVG(args):
             print("train loss per edge on all samples: {}".format(edge_loss))
 
         # print(models_are_equal(edges[0].shared_state_dict, edges[1].shared_state_dict))
+
+        # update params of edges in cloud
+        cloud.update_params(args.sample_size)
         # 开始云端聚合
         for edge in edges:
             edge.send_to_cloudserver(cloud)
 
-        # if args.mode == 1:  # 开启基线
-        #     cloud.quality_aggregate(device, args.threshold, args.score_init)
-        # else:
-        cloud.aggregate(args)
+        if args.mode == 1:   # 质量聚合
+            cloud.quality_aggregate(device, args.threshold, args.score_init)
+        elif args.mode == 2:  # 异步聚合
+            cloud.aggregate_async()
+        else:
+            cloud.aggregate(args)
+
         print(f"Cloud 聚合")
 
         for edge in edges:
@@ -469,7 +477,6 @@ def HierFAVG(args):
 
 def train_client(client, edge, num_iter, device, return_dict):
     try:
-        print(f"Client {client.id} training started.")  # 开始日志
         # 客户端与边缘服务器同步
         edge.send_to_client(client)
         client.sync_with_edgeserver()
@@ -479,7 +486,6 @@ def train_client(client, edge, num_iter, device, return_dict):
         client.send_to_edgeserver(edge)
         # 存储结果
         return_dict[client.id] = client_loss
-        print(f"Client {client.id} training finished.")  # 结束日志
     except Exception as e:
         print(f"Error in client {client.id} training: {e}")  # 异常日志
 
@@ -496,11 +502,9 @@ def process_edge(edge, clients, args, device, edge_loss, edge_sample):
                         args=(client, edge, args.num_local_update, device, return_dict))
         threads.append(thread)
         thread.start()
-        print(f"Client {selected_cid} thread started.")  # 确认线程启动的日志
     # 等待所有线程完成
     for thread in threads:
         thread.join()
-        print(f"Client thread joined.")  # 确认线程结束的日志
     # 边缘聚合
     if args.mode == 1:  # 开启基线
         edge.quality_aggregate(device, args.threshold, args.score_init)

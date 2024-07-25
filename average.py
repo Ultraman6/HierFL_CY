@@ -27,3 +27,23 @@ def average_weights_simple(w):
             w_avg[k] = w_avg[k] + w[i][k]
         w_avg[k] = torch.mul(w_avg[k], 1 / total_num)
     return w_avg
+
+def _modeldict_scale(md, c):
+    """模型参数缩放"""
+    res = {}
+    for layer in md.keys():
+        if md[layer] is None:
+            res[layer] = None
+            continue
+        res[layer] = md[layer] * c
+    return res
+
+def _modeldict_add(md1, md2):
+    """模型参数相加"""
+    res = {}
+    for layer in md1.keys():
+        if md1[layer] is None:
+            res[layer] = None
+            continue
+        res[layer] = md1[layer] + md2[layer]
+    return res
