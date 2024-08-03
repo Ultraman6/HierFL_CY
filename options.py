@@ -38,13 +38,13 @@ def args_parser():
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=20,
+        default=10,
         help='batch size when trained on client'
     )
     parser.add_argument(
         '--num_workers',
         type=int,
-        default=6,
+        default=0,
         help='numworks for dataloader'
     )
     parser.add_argument(

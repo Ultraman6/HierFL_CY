@@ -46,6 +46,8 @@ class Edge():
         self.client_rates={id:0 for id in cids}
         self.valid_loader = valid_loader
         self.valid_nn = valid_nn
+        # 记录边缘开始时刻
+        self.st = 0.0
 
     def refresh_edgeserver(self):
         self.receiver_buffer.clear()
@@ -122,7 +124,7 @@ class Edge():
     def send_to_cloudserver(self, cloud):
         cloud.receive_from_edge(edge_id=self.id,
                                 eshared_state_dict= copy.deepcopy(
-                                    self.shared_state_dict))
+                                    self.shared_state_dict), st=self.st)
         return None
 
     def receive_from_cloudserver(self, shared_state_dict):

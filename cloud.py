@@ -4,6 +4,8 @@
 # 2. Server reveives updates from the user
 # 3. Server send the aggregated information back to clients
 import copy
+import time
+
 from average import _modeldict_add, _modeldict_scale
 from scipy import integrate
 from scipy.stats import norm
@@ -35,6 +37,7 @@ class Cloud():
         self.id_sel = -1
         self.penalty = penalty
         self.staleness = {}  # 记录边缘落后轮次
+        self.late_est_queue = {}  # 每轮估计时延记录
 
     def refresh_cloudserver(self):
         self.receiver_buffer.clear()
@@ -50,10 +53,13 @@ class Cloud():
         self.sample_registration[edge.id] = edge.all_trainsample_num
         self.virtual_queue[edge.id] = -self.min_fraction[str(edge.id)]
         self.staleness[edge.id] = 0
+        self.late_est_queue[edge.id] = []
         return None
 
-    def receive_from_edge(self, edge_id, eshared_state_dict):
+    # 新增-edge自记录开始时间
+    def receive_from_edge(self, edge_id, eshared_state_dict, st=0):
         self.receiver_buffer[edge_id] = eshared_state_dict
+        self.latency_queue[str(edge_id)].append(time.time()-st)
         return None
 
     def aggregate(self, args=None):
@@ -136,6 +142,7 @@ class Cloud():
             prior_variance = self.edge_prior[str(edge_id)][1]
             # 数据数量
             data = np.array(self.latency_queue[str(edge_id)])
+            print(f'edge{edge_id}, real latency: {data[-1]}')
             n_data = len(data)
 
             # 使用观测数据来估计方差
@@ -152,11 +159,11 @@ class Cloud():
             predicted_samples = norm.rvs(loc=posterior_mean, scale=np.sqrt(posterior_variance_point_estimate),
                                          size=sample_size)
 
-            self.latency_queue[str(edge_id)].append(float(np.mean(predicted_samples)))
+            self.late_est_queue[edge_id].append(float(np.mean(predicted_samples)))
 
         # 排除前一轮选中边缘
         # this_time = sum([seq[-1] for id, seq in self.latency_queue.items() if id != self.id_sel])  # acc est time of edge in this round
-        candidate = {id: self.virtual_queue[id] - self.beta*(1 - self.latency_queue[str(id)][-1] / max_latency)
+        candidate = {id: self.virtual_queue[id] - self.beta*(1 - self.late_est_queue[id][-1] / max_latency)
                                 for id in self.id_registration if id != self.id_sel}  # Π(t) in paper
         self.id_sel = max(candidate, key=candidate.get)
         print("Selected edge: ", self.id_sel)

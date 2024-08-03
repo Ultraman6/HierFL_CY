@@ -4,11 +4,9 @@ import json
 import random
 import time
 from threading import Thread
-
 from matplotlib import pyplot as plt
 from torch import nn
 from torch.utils.data import Subset, DataLoader, dataset
-
 from average import average_weights_simple, average_weights
 from models.synthetic_logistic import LogisticRegression_SYNTHETIC
 from options import args_parser
@@ -398,7 +396,7 @@ def HierFAVG(args):
     [cloud.edge_register(edge=edge) for edge in edges]
     p_edge = [sample / sum(cloud.sample_registration.values()) for sample in
               list(cloud.sample_registration.values())]
-    cloud.refresh_cloudserver()
+    # cloud.refresh_cloudserver()
 
     # 开始训练
     # accs_edge_avg = []  # 记录云端的平均边缘测试精度
@@ -408,8 +406,8 @@ def HierFAVG(args):
     # 获取初始时间戳（训练开始时）
     start_time = time.time()
     for num_comm in tqdm(range(args.num_communication)):  # 云聚合
-        cloud.refresh_cloudserver()
-        [cloud.edge_register(edge=edge) for edge in edges]
+        # cloud.refresh_cloudserver()
+        # [cloud.edge_register(edge=edge) for edge in edges]
         all_loss_sum = 0.0
         all_acc_sum = 0.0
         print(f"云端更新   第 {num_comm} 轮")
@@ -498,6 +496,7 @@ def process_edge(edge, clients, args, device, edge_loss, edge_sample):
     # 使用多线程进行客户迭代
     threads = []
     return_dict = {}  # 在线程中，可以直接使用普通字典
+    edge.st = time.time()  # 记录edge开始时刻
     for selected_cid in edge.cids:
         client = clients[selected_cid]
         thread = Thread(target=train_client,
