@@ -3,6 +3,7 @@
 import json
 import random
 import time
+from datetime import datetime
 from threading import Thread
 from matplotlib import pyplot as plt
 from torch import nn
@@ -405,6 +406,16 @@ def HierFAVG(args):
     times = [0]  # 记录每个云端轮结束的时间戳
     # 获取初始时间戳（训练开始时）
     start_time = time.time()
+    # 生成记录文件
+    file_path = 'records'
+    file_name = 'virtual_queue'
+    full_name = f'{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{file_name}.txt'
+    full_path = os.path.join(file_path, full_name)
+    if not os.path.exists(file_path):
+        os.makedirs(file_path)
+    with open(full_path, 'a') as file:
+        ids_line = "  ".join(str(id) for id in cloud.id_registration)
+        file.write(ids_line + "\n")
     for num_comm in tqdm(range(args.num_communication)):  # 云聚合
         # cloud.refresh_cloudserver()
         # [cloud.edge_register(edge=edge) for edge in edges]
@@ -439,6 +450,9 @@ def HierFAVG(args):
 
         # update params of edges in cloud
         cloud.update_params(args.sample_size, args.max_latency)
+        with open(full_path, 'a') as file:
+            queue_values = " ".join(str(cloud.virtual_queue[id]) for id in cloud.id_registration)
+            file.write(f"{num_comm} {queue_values}\n")
         # 开始云端聚合
         for edge in edges:
             edge.send_to_cloudserver(cloud)

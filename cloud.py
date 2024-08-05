@@ -38,6 +38,7 @@ class Cloud():
         self.penalty = penalty
         self.staleness = {}  # 记录边缘落后轮次
         self.late_est_queue = {}  # 每轮估计时延记录
+        self.chosen_record = {}  # record times for edges
 
     def refresh_cloudserver(self):
         self.receiver_buffer.clear()
@@ -53,6 +54,7 @@ class Cloud():
         self.sample_registration[edge.id] = edge.all_trainsample_num
         self.virtual_queue[edge.id] = -self.min_fraction[str(edge.id)]
         self.staleness[edge.id] = 0
+        self.chosen_record[edge.id] = 0
         self.late_est_queue[edge.id] = []
         return None
 
@@ -166,6 +168,8 @@ class Cloud():
         candidate = {id: self.virtual_queue[id] - self.beta*(1 - self.late_est_queue[id][-1] / max_latency)
                                 for id in self.id_registration if id != self.id_sel}  # Π(t) in paper
         self.id_sel = max(candidate, key=candidate.get)
+        self.chosen_record[self.id_sel] += 1
+
         print("Selected edge: ", self.id_sel)
         for edge_id in self.id_registration: # 更新边缘虚拟队列
             if edge_id != self.id_sel:
