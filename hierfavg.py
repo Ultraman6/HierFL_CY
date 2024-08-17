@@ -431,7 +431,7 @@ def HierFAVG(args):
             edge_loss = [0.0] * len(edges)
             edge_sample = [0] * len(edges)
             for edge in edges:
-                edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample))
+                edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample, num_edgeagg))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
@@ -504,13 +504,14 @@ def train_client(client, edge, num_iter, device, return_dict):
         print(f"Error in client {client.id} training: {e}")  # 异常日志
 
 
-def process_edge(edge, clients, args, device, edge_loss, edge_sample):
+def process_edge(edge, clients, args, device, edge_loss, edge_sample, tc):
     # 一次边缘迭更新 = n个本地迭代+ 一次边缘聚合
     # print(f"Edge {edge.id} 边缘更新开始")
     # 使用多线程进行客户迭代
     threads = []
     return_dict = {}  # 在线程中，可以直接使用普通字典
-    edge.st = time.time()  # 记录edge开始时刻
+    if tc == 0:  # 边缘迭代首轮开始 记录初始时刻
+        edge.st = time.time()  # 记录edge开始时刻
     for selected_cid in edge.cids:
         client = clients[selected_cid]
         thread = Thread(target=train_client,
