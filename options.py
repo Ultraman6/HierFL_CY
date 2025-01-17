@@ -417,8 +417,8 @@ def args_parser():
     parser.add_argument(
         '--mode',
         type=float,
-        default=2,
-        help='1 质量聚合, 2 异步聚合, 0 普通聚合'
+        default=3,
+        help='1 质量聚合, 2 异步聚合, 3 屏蔽边缘聚合 0 普通聚合'
     )
     parser.add_argument(
         '--max_latency',

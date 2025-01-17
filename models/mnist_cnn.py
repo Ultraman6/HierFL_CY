@@ -25,7 +25,7 @@ class mnist_lenet(nn.Module):
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
-        return  x
+        return x
 
 class mnist_cnn(nn.Module):
 

@@ -12,7 +12,7 @@ import torch
 from models.initialize_model import initialize_model
 import copy
 
-class Client():
+class Client:
 
     def __init__(self, id, train_loader, test_loader, args, device, com_params):
         self.id = id

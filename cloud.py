@@ -16,7 +16,7 @@ from average import average_weights, average_weights_simple
 
 data = np.array([1, 2, 2, 2, 2])
 
-class Cloud():
+class Cloud:
 
     def __init__(self, shared_layers, valid_loader=None, valid_nn=None, edge_fraction=None, edge_prior=None, edge_his=None, edge_beta=1.0, penalty=0.5):
         self.receiver_buffer = {}
@@ -58,7 +58,7 @@ class Cloud():
         self.late_est_queue[edge.id] = []
         return None
 
-    # 新增-edge自记录开始时间
+    # 新增edge自记录开始时间
     def receive_from_edge(self, edge_id, eshared_state_dict, st=0):
         self.receiver_buffer[edge_id] = eshared_state_dict
         self.latency_queue[str(edge_id)].append(time.time()-st)
@@ -83,6 +83,17 @@ class Cloud():
             model2 = _modeldict_scale(self.receiver_buffer[self.id_sel], alpha)
             self.shared_state_dict = _modeldict_add(model1, model2)
 
+        return None
+
+    def aggregate_without_edge(self, args=None):
+        model_list, num_list = [], []
+        for eid, tuples in self.receiver_buffer.items():
+            for cid, (num, w) in tuples.items():
+                model_list.append(w)
+                num_list.append(num)
+
+        self.shared_state_dict = average_weights(w=model_list,
+                                                 s_num=num_list)
         return None
 
     def send_to_edge(self, edge):
@@ -149,23 +160,19 @@ class Cloud():
 
             # 使用观测数据来估计方差
             data_variance = np.var(data, ddof=1)
-
             # 估计后验方差的点估计
             posterior_variance_point_estimate = 1 / (1 / prior_variance + n_data / data_variance)
-
             # 更新均值
             posterior_mean = (prior_mean / prior_variance + np.sum(data) / data_variance) / (
                     1 / prior_variance + n_data / data_variance)
-
             # 预估下一轮数据的分布
             predicted_samples = norm.rvs(loc=posterior_mean, scale=np.sqrt(posterior_variance_point_estimate),
                                          size=sample_size)
-
             self.late_est_queue[edge_id].append(float(np.mean(predicted_samples)))
 
         # 排除前一轮选中边缘
         # this_time = sum([seq[-1] for id, seq in self.latency_queue.items() if id != self.id_sel])  # acc est time of edge in this round
-        candidate = {id: self.virtual_queue[id] - self.beta*(1 - self.late_est_queue[id][-1] / max_latency)
+        candidate = {id: self.virtual_queue[id] - self.beta * (1 - self.late_est_queue[id][-1] / max_latency)
                                 for id in self.id_registration if id != self.id_sel}  # Π(t) in paper
         self.id_sel = max(candidate, key=candidate.get)
         self.chosen_record[self.id_sel] += 1

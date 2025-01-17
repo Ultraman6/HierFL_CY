@@ -11,7 +11,7 @@ from average import average_weights, average_weights_simple
 from cloud import valid_loss_test
 
 
-class Edge():
+class Edge:
 
     def __init__(self, id, cids, shared_layers, com_params, valid_loader=None, valid_nn=None):
         """
@@ -33,17 +33,17 @@ class Edge():
         self.cids = cids
         self.receiver_buffer = {}
         self.shared_state_dict = {}
+        self.shared_state_dict = shared_layers.state_dict()
         self.id_registration = []
         self.sample_registration = {}
         self.all_trainsample_num = 0
-        self.shared_state_dict = shared_layers.state_dict()
         self.clock = []
         # 边缘服务器上行链路用参数
-        self.X=com_params[0]
-        self.Q=com_params[1]
-        self.W=com_params[2]
+        self.X = com_params[0]
+        self.Q = com_params[1]
+        self.W = com_params[2]
         # 存放每边缘轮客户上传的速率, 键值对存放
-        self.client_rates={id:0 for id in cids}
+        self.client_rates = {id: 0 for id in cids}
         self.valid_loader = valid_loader
         self.valid_nn = valid_nn
         # 记录边缘开始时刻
@@ -73,8 +73,19 @@ class Edge():
         """
         received_dict = [dict for dict in self.receiver_buffer.values()]
         sample_num = [snum for snum in self.sample_registration.values()]
-        self.shared_state_dict = average_weights(w = received_dict,
-                                                 s_num= sample_num)
+        self.shared_state_dict = average_weights(w=received_dict,
+                                                 s_num=sample_num)
+
+    def aggregate_by_pack(self, args):
+        """
+        Using the old aggregation funciton
+        :param args:
+        :return:
+        """
+        self.shared_state_dict = {}
+        for cid, weight in self.receiver_buffer.items():
+            num = self.sample_registration[cid]
+            self.shared_state_dict[cid] = (num, weight)
 
     def quality_aggregate(self, device, delta_threshold, score_init):
         w_locals_pass = []  # Models that pass quality detection
@@ -116,20 +127,16 @@ class Edge():
             # 质量得分聚合
             self.shared_state_dict = average_weights(w_locals_pass, alpha_values)
 
-
     def send_to_client(self, client):
         client.receive_from_edgeserver(copy.deepcopy(self.shared_state_dict))
         return None
 
     def send_to_cloudserver(self, cloud):
         cloud.receive_from_edge(edge_id=self.id,
-                                eshared_state_dict= copy.deepcopy(
+                                eshared_state_dict=copy.deepcopy(
                                     self.shared_state_dict), st=self.st)
         return None
 
     def receive_from_cloudserver(self, shared_state_dict):
         self.shared_state_dict = shared_state_dict
         return None
-
-
-

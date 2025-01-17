@@ -421,35 +421,56 @@ def HierFAVG(args):
         # [cloud.edge_register(edge=edge) for edge in edges]
         all_loss_sum = 0.0
         all_acc_sum = 0.0
-        print(f"云端更新   第 {num_comm} 轮")
-        for num_edgeagg in range(args.num_edge_aggregation):  # 边缘聚合
-            print(f"边缘更新   第 {num_edgeagg} 轮")
+        print(f"云端更新  第 {num_comm} 轮")
+        if args.mode == 3: # 屏蔽边缘聚合
             if torch.cuda.is_available():
                 torch.cuda.set_device("cuda:0")
             # 多线程的边缘迭代
             edge_threads = []
-            edge_loss = [0.0] * len(edges)
-            edge_sample = [0] * len(edges)
+            edge_loss = [{}] * len(edges)
+            edge_sample = [{}] * len(edges)
             for edge in edges:
-                edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample, num_edgeagg))
+                edge_thread = Thread(target=process_edge,
+                                     args=(edge, clients, args, device, edge_loss, edge_sample, -1))
                 edge_threads.append(edge_thread)
                 edge_thread.start()
             for edge_thread in edge_threads:
                 edge_thread.join()
 
             # 统计边缘迭代的损失和样本
-            total_samples = sum(edge_sample)
-            if total_samples > 0:
-                all_loss = sum([e_loss * e_sample for e_loss, e_sample in zip(edge_loss, edge_sample)]) / total_samples
-                all_loss_sum += all_loss
-            else:
-                print("Warning: Total number of samples is zero. Cannot compute all_loss.")
-            print("train loss per edge on all samples: {}".format(edge_loss))
+            for losses, nums in zip(edge_loss, edge_sample):
+                for cid, loss in losses.items():
+                    print(f"client {cid} train loss {loss} sample {nums[cid]}")
+        else:
+            for num_edgeagg in range(args.num_edge_aggregation):  # 边缘聚合
+                print(f"边缘更新  第 {num_edgeagg} 轮")
+                if torch.cuda.is_available():
+                    torch.cuda.set_device("cuda:0")
+                # 多线程的边缘迭代
+                edge_threads = []
+                edge_loss = [0.0] * len(edges)
+                edge_sample = [0] * len(edges)
+                for edge in edges:
+                    edge_thread = Thread(target=process_edge, args=(edge, clients, args, device, edge_loss, edge_sample, num_edgeagg))
+                    edge_threads.append(edge_thread)
+                    edge_thread.start()
+                for edge_thread in edge_threads:
+                    edge_thread.join()
+
+                # 统计边缘迭代的损失和样本
+                total_samples = sum(edge_sample)
+                if total_samples > 0:
+                    all_loss = sum([e_loss * e_sample for e_loss, e_sample in zip(edge_loss, edge_sample)]) / total_samples
+                    all_loss_sum += all_loss
+                else:
+                    print("Warning: Total number of samples is zero. Cannot compute all_loss.")
+                print("train loss per edge on all samples: {}".format(edge_loss))
 
         # print(models_are_equal(edges[0].shared_state_dict, edges[1].shared_state_dict))
 
         # update params of edges in cloud
-        cloud.update_params(args.sample_size, args.max_latency)
+        if args.mode == 2:
+            cloud.update_params(args.sample_size, args.max_latency)
         with open(full_path, 'a') as file:
             queue_values = " ".join(str(cloud.virtual_queue[id]) for id in cloud.id_registration)
             file.write(f"{num_comm} {queue_values}\n")
@@ -461,6 +482,8 @@ def HierFAVG(args):
             cloud.quality_aggregate(device, args.threshold, args.score_init)
         elif args.mode == 2:  # 异步聚合
             cloud.aggregate_async()
+        elif args.mode == 3:  # 屏蔽边缘聚合
+            cloud.aggregate_without_edge()
         else:
             cloud.aggregate(args)
 
@@ -524,11 +547,18 @@ def process_edge(edge, clients, args, device, edge_loss, edge_sample, tc):
     # 边缘聚合
     if args.mode == 1:  # 开启基线
         edge.quality_aggregate(device, args.threshold, args.score_init)
+    elif args.mode == 3:  # 屏蔽边缘聚合
+        edge.aggregate_by_pack(args)
     else:
         edge.aggregate(args)
+
     # 更新边缘训练损失
-    edge_loss[edge.id] = sum(return_dict.values())
-    edge_sample[edge.id] = sum(edge.sample_registration.values())
+    if args.mode == 3: # 屏蔽边缘聚合时直接返回客户本地损失
+        edge_loss[edge.id] = return_dict
+        edge_sample[edge.id] = edge.sample_registration
+    else:
+        edge_loss[edge.id] = sum(return_dict.values())
+        edge_sample[edge.id] = sum(edge.sample_registration.values())
 
 
 
